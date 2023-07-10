@@ -1,0 +1,20 @@
+Query metadata of EC2 instance on AWS and provide json formatted output
+Create EC2 instance on AWS and ssh into it.
+•	Install Python 3 and git 
+o	sudo yum install python3 git
+•	Clone the repository
+o	git clone https://github.com/bluprince13/aws-metadata-json
+•	Install pipenv
+o	sudo pip3 install pipenv
+•	Open the repository on your instance
+o	cd aws-metadata-json
+•	Install project dependancies
+o	pipenv install
+
+How to make it run:
+•	Open the src folder
+o	cd aws-metadata-json/src
+•	Run whichever script you need:
+o	python3 get_metadata.py
+o	python3 get_key.py
+
