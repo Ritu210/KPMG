@@ -1,0 +1,144 @@
+1.	Azure provider and resource group set up:
+
+
+provider "azurerm" {
+  features {}
+}
+
+resource "azurerm_resource_group" "ritu" {
+  name     = "ritu-resource-group"
+  location = "WestUS2"
+}
+
+resource "azurerm_virtual_network" "vnet" {
+  name                = "ritu-vnet"
+  address_space       = ["255.0.0.0/16"]
+  location            = "westus2" 
+  resource_group_name = azurerm_resource_group.ritu_rg.name
+}
+
+resource "azurerm_subnet" "app_subnet" {
+  name                 = "ritu-app-subnet"
+  resource_group_name  = azurerm_resource_group.ritu_rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes      = ["255.0.0.0/24"]  
+
+2.	Implementation of Presentation layer:
+
+
+resource "azurerm_lb" "web_lb" {
+  name                = "web-lb"
+  location            = "westus2"  
+  resource_group_name = azurerm_resource_group.ritu_rg.name
+
+  frontend_ip_configuration {
+    name                 = "PublicIPAddress"
+    public_ip_address_id = azurerm_public_ip.web_lb_public_ip.id
+  }
+}
+
+resource "azurerm_virtual_machine" "web_instances" {
+  count                 = 3
+  name                  = "web-vm-${count.index}"
+  location              = "westus2"
+  resource_group_name   = azurerm_resource_group.ritu_rg.name
+  network_interface_ids = [azurerm_network_interface.web_nic.id]
+  vm_size               = "Standard_B1s"  
+  storage_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "16.04-LTS"
+    version   = "latest"
+  }
+}
+
+3.	Building the Application layer:
+
+
+resource "azurerm_virtual_machine" "app_instances" {
+  count                 = 3  
+  name                  = "app-vm-${count.index}"
+  location              = "westus2"  
+  resource_group_name   = azurerm_resource_group.ritu_rg.name
+  network_interface_ids = [azurerm_network_interface.app_nic.id]
+  vm_size               = "Standard"    storage_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "16.04-LTS"
+    version   = "latest"
+  }
+}
+
+4.	Implementing the Data layer:
+
+
+resource "azurerm_sql_server" "database_server" {
+  name                         = "database-server"
+  resource_group_name          = azurerm_resource_group.ritu.name
+  location                     = azurerm_resource_group.example.location
+  version                      = "12.0"
+  administrator_login          = "admin"
+  administrator_login_password = "admin@123"
+}
+
+resource "azurerm_sql_database" "database" {
+  name                         = "ritu-db"
+  resource_group_name          = azurerm_resource_group.ritu.name
+  location                     = azurerm_resource_group.ritu.location
+  server_name                  = azurerm_sql_server.database_server.name
+  edition                      = "Basic"
+  requested_service_objective_name = "Basic"
+  collation                    = "SQL_Latin1_General_CP1_CI_AS"
+}
+
+5.	Connectivity between all the layers
+
+resource "azurerm_sql_virtual_network_rule" "app_network_rule" {
+  name                = "app-network-rule"
+  server_name         = azurerm_sql_server.database_server.name
+  resource_group_name = azurerm_resource_group.ritu_rg.name
+  subnet_id           = azurerm_subnet.app_subnet.id
+}
+
+
+resource "azurerm_lb_backend_address_pool" "web_backend_pool" {
+  name                = "web-backend-pool"
+  loadbalancer_id     = azurerm_lb.web_lb.id
+  resource_group_name = azurerm_resource_group.ritu_rg.name
+
+  backend_addresses {
+    ip_address = azurerm_virtual_machine.web_instances.*.private_ip_address
+  }
+}
+
+
+resource "azurerm_virtual_machine_extension" "app_db_extension" {
+  name                 = "app-db-extension"
+  virtual_machine_id   = azurerm_virtual_machine.app_instances[0].id
+  resource_group_name  = azurerm_resource_group.example_rg.name
+  publisher            = "Microsoft.Azure.Extensions"
+  type                 = "CustomScript"
+  type_handler_version = "2.0"
+
+  settings = <<SETTINGS
+    {
+        "commandToExecute": "sudo apt-get update && sudo apt-get install -y mysql-client"
+    }
+  SETTINGS
+}
+
+
+resource "azurerm_virtual_machine_extension" "app_db_connection" {
+  name                 = "app-db-connection"
+  virtual_machine_id   = azurerm_virtual_machine.app_instances[0].id
+  resource_group_name  = azurerm_resource_group.ritu_rg.name
+  publisher            = "Microsoft.Azure.Extensions"
+  type                 = "CustomScript"
+  type_handler_version = "2.0"
+
+  settings = <<SETTINGS
+    {
+        "commandToExecute": "echo 'export DB_CONNECTION_STRING=<YOUR_DATABASE_CONNECTION_STRING>' >> /etc/environment"
+    }
+  SETTINGS
+}
